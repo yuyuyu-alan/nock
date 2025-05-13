@@ -49,11 +49,18 @@ if [[ "$confirm_choo" == "y" || "$confirm_choo" == "Y" ]]; then
 fi
 
 echo -e "\n🔐 生成钱包，请保存好助记词与公钥："
-wallet keygen
+wallet_output=$(choo hoon/apps/wallet/wallet.hoon keygen)
+echo "$wallet_output"
 
-echo -e "\n🔧 设置挖矿公钥："
-read -p "请输入你的挖矿公钥: " new_pubkey
-sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $new_pubkey|" Makefile
+pubkey=$(echo "$wallet_output" | grep 'pubkey:' | awk '{print $2}')
+if [[ -n "$pubkey" ]]; then
+  echo -e "\n✅ 钱包公钥提取成功：$pubkey"
+  sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $pubkey|" Makefile
+else
+  echo -e "\n⚠️ 未能自动提取公钥，请手动填写："
+  read -p "请输入你的挖矿公钥: " new_pubkey
+  sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $new_pubkey|" Makefile
+fi
 
 echo -e "\n🧠 配置完成，你可以使用以下命令分别运行 leader 和 follower 节点："
 
