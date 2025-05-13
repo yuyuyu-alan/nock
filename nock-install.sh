@@ -49,17 +49,27 @@ if [[ "$confirm_choo" == "y" || "$confirm_choo" == "Y" ]]; then
 fi
 
 echo -e "\n🔐 生成钱包，请保存好助记词与公钥："
-wallet_output=$(choo hoon/apps/wallet/wallet.hoon keygen)
-echo "$wallet_output"
 
-pubkey=$(echo "$wallet_output" | grep 'pubkey:' | awk '{print $2}')
-if [[ -n "$pubkey" ]]; then
-  echo -e "\n✅ 钱包公钥提取成功：$pubkey"
-  sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $pubkey|" Makefile
+wallet_output=""
+if [ -f "./target/release/wallet" ]; then
+  wallet_output=$(./target/release/wallet keygen)
+elif [ -f "./target/release/nock-wallet" ]; then
+  wallet_output=$(./target/release/nock-wallet keygen)
 else
-  echo -e "\n⚠️ 未能自动提取公钥，请手动填写："
-  read -p "请输入你的挖矿公钥: " new_pubkey
-  sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $new_pubkey|" Makefile
+  echo "❌ 未找到 wallet 命令。请确认是否正确构建钱包模块。"
+fi
+
+if [[ -n "$wallet_output" ]]; then
+  echo "$wallet_output"
+  pubkey=$(echo "$wallet_output" | grep -Eo '0x[a-fA-F0-9]{40}')
+  if [[ -n "$pubkey" ]]; then
+    echo -e "\n✅ 提取到公钥：$pubkey"
+    sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $pubkey|" Makefile
+  else
+    echo -e "\n⚠️ 未能自动提取公钥，请手动输入："
+    read -p "请输入你的挖矿公钥: " new_pubkey
+    sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $new_pubkey|" Makefile
+  fi
 fi
 
 echo -e "\n🧠 配置完成，你可以使用以下命令分别运行 leader 和 follower 节点："
