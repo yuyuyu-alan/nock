@@ -9,7 +9,7 @@ sudo apt install -y screen curl iptables build-essential git wget lz4 jq make gc
 
 echo -e "\n🦀 安装 Rust..."
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source $HOME/.cargo/env
+source "$HOME/.cargo/env"
 rustup default stable
 
 echo -e "\n📁 检查 nockchain 仓库..."
@@ -29,10 +29,13 @@ fi
 
 cd nockchain
 
-echo -e "\n🔧 开始编译，请耐心等待（大约 15 分钟）..."
+echo -e "\n🔧 开始编译 choo 和 hoon，请耐心等待（大约 15 分钟）..."
 make install-choo
 make build-hoon-all
 make build
+
+echo -e "\n🔧 编译 wallet 模块..."
+cargo build --release --package wallet
 
 echo -e "\n✅ 编译完成！正在配置环境变量..."
 echo 'export PATH="$PATH:/root/nockchain/target/release"' >> ~/.bashrc
@@ -41,25 +44,25 @@ echo 'export MINIMAL_LOG_FORMAT=true' >> ~/.bashrc
 source ~/.bashrc
 
 # === 可选：是否初始化 choo hoon 模块 ===
-read -p $'\n🌀 是否执行 choo 初始化测试？这一步可能卡住界面，非必须操作。输入 y 继续，其他跳过(建议 y ）：' confirm_choo
+read -p $'\n🌀 是否执行 choo 初始化测试？这一步可能卡住界面，非必须操作。输入 y 继续，其他跳过（建议 y）：' confirm_choo
 if [[ "$confirm_choo" == "y" || "$confirm_choo" == "Y" ]]; then
   mkdir -p hoon assets
   echo "%trivial" > hoon/trivial.hoon
   choo --new --arbitrary hoon/trivial.hoon
 fi
 
-echo -e "\n🔐 生成钱包，请保存好助记词与公钥："
+echo -e "\n🔐 正在生成钱包，请保存好助记词与公钥："
 
-wallet_output=""
-if [ -f "./target/release/wallet" ]; then
-  wallet_output=$(./target/release/wallet keygen)
-elif [ -f "./target/release/nock-wallet" ]; then
-  wallet_output=$(./target/release/nock-wallet keygen)
-else
-  echo "❌ 未找到 wallet 命令。请确认是否正确构建钱包模块。"
+wallet_output=$(./target/release/wallet keygen 2>/dev/null || true)
+
+if [[ -z "$wallet_output" ]]; then
+  echo -e "\n❌ wallet 执行失败，尝试使用 nock-wallet..."
+  wallet_output=$(./target/release/nock-wallet keygen 2>/dev/null || true)
 fi
 
-if [[ -n "$wallet_output" ]]; then
+if [[ -z "$wallet_output" ]]; then
+  echo -e "\n❌ 无法生成钱包，请手动确认 wallet 模块是否成功构建。"
+else
   echo "$wallet_output"
   pubkey=$(echo "$wallet_output" | grep -Eo '0x[a-fA-F0-9]{40}')
   if [[ -n "$pubkey" ]]; then
