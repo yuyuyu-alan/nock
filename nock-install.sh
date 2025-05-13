@@ -29,13 +29,10 @@ fi
 
 cd nockchain
 
-echo -e "\n🔧 开始编译 choo 和 hoon，请耐心等待（大约 15 分钟）..."
+echo -e "\n🔧 开始编译，请耐心等待（大约 15 分钟）..."
 make install-choo
 make build-hoon-all
 make build
-
-echo -e "\n🔧 编译 wallet 模块..."
-cargo build --release --package wallet
 
 echo -e "\n✅ 编译完成！正在配置环境变量..."
 echo 'export PATH="$PATH:/root/nockchain/target/release"' >> ~/.bashrc
@@ -44,7 +41,7 @@ echo 'export MINIMAL_LOG_FORMAT=true' >> ~/.bashrc
 source ~/.bashrc
 
 # === 可选：是否初始化 choo hoon 模块 ===
-read -p $'\n🌀 是否执行 choo 初始化测试？这一步可能卡住界面，非必须操作。输入 y 继续，其他跳过（建议 y）：' confirm_choo
+read -p $'\n🌀 是否执行 choo 初始化测试？这一步可能卡住界面，非必须操作。输入 y 继续，其他跳过(建议 y ）：' confirm_choo
 if [[ "$confirm_choo" == "y" || "$confirm_choo" == "Y" ]]; then
   mkdir -p hoon assets
   echo "%trivial" > hoon/trivial.hoon
@@ -53,26 +50,24 @@ fi
 
 echo -e "\n🔐 正在生成钱包，请保存好助记词与公钥："
 
-wallet_output=$(./target/release/wallet keygen 2>/dev/null || true)
-
-if [[ -z "$wallet_output" ]]; then
-  echo -e "\n❌ wallet 执行失败，尝试使用 nock-wallet..."
-  wallet_output=$(./target/release/nock-wallet keygen 2>/dev/null || true)
+if [ -f "./target/release/wallet" ]; then
+  ./target/release/wallet keygen | tee wallet_output.txt
+elif [ -f "./target/release/nock-wallet" ]; then
+  ./target/release/nock-wallet keygen | tee wallet_output.txt
+else
+  echo -e "\n❌ 无法找到 wallet 命令，请检查构建是否成功。"
+  exit 1
 fi
 
-if [[ -z "$wallet_output" ]]; then
-  echo -e "\n❌ 无法生成钱包，请手动确认 wallet 模块是否成功构建。"
+pubkey=$(grep -Eo '0x[a-fA-F0-9]{40}' wallet_output.txt)
+
+if [[ -n "$pubkey" ]]; then
+  echo -e "\n✅ 已提取公钥：$pubkey"
+  sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $pubkey|" Makefile
 else
-  echo "$wallet_output"
-  pubkey=$(echo "$wallet_output" | grep -Eo '0x[a-fA-F0-9]{40}')
-  if [[ -n "$pubkey" ]]; then
-    echo -e "\n✅ 提取到公钥：$pubkey"
-    sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $pubkey|" Makefile
-  else
-    echo -e "\n⚠️ 未能自动提取公钥，请手动输入："
-    read -p "请输入你的挖矿公钥: " new_pubkey
-    sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $new_pubkey|" Makefile
-  fi
+  echo -e "\n⚠️ 未能自动提取公钥，请手动输入："
+  read -p "请输入你的挖矿公钥: " new_pubkey
+  sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $new_pubkey|" Makefile
 fi
 
 echo -e "\n🧠 配置完成，你可以使用以下命令分别运行 leader 和 follower 节点："
