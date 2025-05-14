@@ -9,13 +9,12 @@ sudo apt install -y screen curl iptables build-essential git wget lz4 jq make gc
 
 echo -e "\n🦀 安装 Rust..."
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source "$HOME/.cargo/env"
+source $HOME/.cargo/env
 rustup default stable
 
 echo -e "\n📁 检查 nockchain 仓库..."
-
 if [ -d "nockchain" ]; then
-  echo "⚠️ 检测到已有 nockchain 目录，是否删除并重新拉取？(y/n)"
+  echo "⚠️ 检测到已有 nockchain 目录，是否删除并重新拉取（必须选 y ，因为库更新了）？(y/n)"
   read -r confirm
   if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
     rm -rf nockchain
@@ -29,52 +28,35 @@ fi
 
 cd nockchain
 
-echo -e "\n🔧 开始编译，请耐心等待（大约 15 分钟）..."
-make install-choo
-make build-hoon-all
+echo -e "\n🔧 安装 hoonc 编译器..."
+make install-hoonc
+
+echo -e "\n🔧 编译项目和所需资源..."
 make build
 
-echo -e "\n✅ 编译完成！正在配置环境变量..."
-echo 'export PATH="$PATH:/root/nockchain/target/release"' >> ~/.bashrc
-echo 'export RUST_LOG=info' >> ~/.bashrc
-echo 'export MINIMAL_LOG_FORMAT=true' >> ~/.bashrc
-source ~/.bashrc
+echo -e "\n🔧 安装钱包与主程序..."
+make install-nockchain-wallet
+make install-nockchain
 
-# === 可选：是否初始化 choo hoon 模块 ===
-read -p $'\n🌀 是否执行 choo 初始化测试？这一步可能卡住界面，非必须操作。输入 y 继续，其他跳过(建议 y ）：' confirm_choo
-if [[ "$confirm_choo" == "y" || "$confirm_choo" == "Y" ]]; then
-  mkdir -p hoon assets
-  echo "%trivial" > hoon/trivial.hoon
-  choo --new --arbitrary hoon/trivial.hoon
-fi
+echo -e "\n🔐 生成钱包，请保存好助记词与公钥："
+wallet_output=$(target/release/nock-wallet keygen || true)
 
-echo -e "\n🔐 正在生成钱包，请保存好助记词与公钥："
-
-if [ -f "./target/release/wallet" ]; then
-  ./target/release/wallet keygen | tee wallet_output.txt
-elif [ -f "./target/release/nock-wallet" ]; then
-  ./target/release/nock-wallet keygen | tee wallet_output.txt
+if [[ -z "$wallet_output" ]]; then
+  echo "❌ 钱包生成失败，请手动运行：target/release/nock-wallet keygen"
 else
-  echo -e "\n❌ 无法找到 wallet 命令，请检查构建是否成功。"
-  exit 1
-fi
-
-pubkey=$(grep -Eo '0x[a-fA-F0-9]{40}' wallet_output.txt)
-
-if [[ -n "$pubkey" ]]; then
-  echo -e "\n✅ 已提取公钥：$pubkey"
-  sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $pubkey|" Makefile
-else
-  echo -e "\n⚠️ 未能自动提取公钥，请手动输入："
-  read -p "请输入你的挖矿公钥: " new_pubkey
-  sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $new_pubkey|" Makefile
+  echo "$wallet_output"
+  pubkey=$(echo "$wallet_output" | grep -Eo '0x[a-fA-F0-9]{40}')
+  if [[ -n "$pubkey" ]]; then
+    echo -e "\n✅ 提取到公钥：$pubkey"
+    sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $pubkey|" Makefile
+  else
+    echo -e "\n⚠️ 未能自动提取公钥，请手动设置 Makefile 中的 MINING_PUBKEY"
+  fi
 fi
 
 echo -e "\n🧠 配置完成，你可以使用以下命令分别运行 leader 和 follower 节点："
-
 echo -e "\n➡️ 启动 leader 节点："
 echo -e "screen -S leader\nmake run-nockchain-leader"
-
 echo -e "\n➡️ 启动 follower 节点："
 echo -e "screen -S follower\nmake run-nockchain-follower"
 
