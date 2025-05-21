@@ -5,6 +5,10 @@
    ```bash
 wget -O nock-install.sh https://raw.githubusercontent.com/GzGod/nock/refs/heads/main/nock-install.sh && sed -i 's/\r$//' nock-install.sh && chmod +x nock-install.sh && ./nock-install.sh
    ```
+## 一键命令 Mac 版
+   ```bash
+wget -O nock-install-mac.sh https://raw.githubusercontent.com/GzGod/nock/refs/heads/main/nock-install-mac.sh && sed -i 's/\r$//' nock-install-mac.sh && chmod +x nock-install-mac.sh && ./nock-install-mac.sh
+   ```
 其中生成钱包这一步会生成 wallet.txt 相关内容看图
 <img width="710" alt="image" src="https://github.com/user-attachments/assets/fc231505-cbff-48a5-9371-a6cd28032610" />
 
