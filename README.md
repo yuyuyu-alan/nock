@@ -1,4 +1,6 @@
-# 配置要求
+# 配置要求 暂时先别跑了，项目方说还要更新，正式上线前不会更新脚本了，浪费我的时间
+<img width="599" alt="image" src="https://github.com/user-attachments/assets/8468c460-0661-473b-bbad-c474de5bcd7d" />
+
 最低要求 64 G RAM 没有到这个要求的可以省省了。。。
 
 ## 一键命令 Linux 版
