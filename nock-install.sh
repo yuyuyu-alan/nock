@@ -31,15 +31,25 @@ function show_banner() {
 
 # ========= 安装系统依赖 =========
 function install_dependencies() {
+  if ! command -v apt-get &> /dev/null; then
+    echo -e "${RED}[-] 此脚本假设使用 Debian/Ubuntu 系统 \(apt\)。请手动安装依赖！${RESET}"
+    pause_and_return
+    return
+  fi
   echo -e "[*] 安装系统依赖..."
   apt-get update && apt install -y sudo
-  sudo apt install -y screen curl iptables build-essential git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli libgbm1 pkg-config libssl-dev libleveldb-dev tar clang bsdmainutils ncdu unzip
+  sudo apt install -y screen curl iptables build-essential git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli libgbm1 pkg-config libssl-dev libleveldb-dev tar clang llvm-dev libclang-dev bsdmainutils ncdu unzip
   echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
   pause_and_return
 }
 
 # ========= 安装 Rust =========
 function install_rust() {
+  if command -v rustc &> /dev/null; then
+    echo -e "${YELLOW}[!] Rust 已安装，跳过安装。${RESET}"
+    pause_and_return
+    return
+  fi
   echo -e "[*] 安装 Rust..."
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
   source "$HOME/.cargo/env"
@@ -57,11 +67,28 @@ function setup_repository() {
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
       rm -rf "$NCK_DIR"
       git clone https://github.com/zorp-corp/nockchain "$NCK_DIR"
+      if [ $? -ne 0 ]; then
+        echo -e "${RED}[-] 克隆仓库失败，请检查网络或权限！${RESET}"
+        pause_and_return
+        return
+      fi
     else
       cd "$NCK_DIR" && git pull
     fi
   else
     git clone https://github.com/zorp-corp/nockchain "$NCK_DIR"
+    if [ $? -ne 0 ]; then
+      echo -e "${RED}[-] 克隆仓库失败，请检查网络或权限！${RESET}"
+      pause_and_return
+      return
+    fi
+  fi
+  # Setup environment file
+  if [ -f "$NCK_DIR/.env_example" ]; then
+    cp "$NCK_DIR/.env_example" "$NCK_DIR/.env"
+    echo -e "${GREEN}[+] 环境文件 .env 已创建。${RESET}"
+  else
+    echo -e "${RED}[-] 未找到 .env_example 文件，请检查仓库！${RESET}"
   fi
   echo -e "${GREEN}[+] 仓库设置完成。${RESET}"
   pause_and_return
@@ -97,9 +124,15 @@ function configure_env() {
   RC_FILE="$HOME/.bashrc"
   [[ "$SHELL" == *"zsh"* ]] && RC_FILE="$HOME/.zshrc"
 
-  echo 'export PATH="$PATH:$HOME/nockchain/target/release"' >> "$RC_FILE"
-  echo 'export RUST_LOG=info' >> "$RC_FILE"
-  echo 'export MINIMAL_LOG_FORMAT=true' >> "$RC_FILE"
+  if ! grep -q "$HOME/nockchain/target/release" "$RC_FILE"; then
+    echo 'export PATH="$PATH:$HOME/nockchain/target/release"' >> "$RC_FILE"
+  fi
+  if ! grep -q "RUST_LOG=info" "$RC_FILE"; then
+    echo 'export RUST_LOG=info' >> "$RC_FILE"
+  fi
+  if ! grep -q "MINIMAL_LOG_FORMAT=true" "$RC_FILE"; then
+    echo 'export MINIMAL_LOG_FORMAT=true' >> "$RC_FILE"
+  fi
   source "$RC_FILE"
   echo -e "${GREEN}[+] 环境变量配置完成。${RESET}"
   pause_and_return
@@ -114,73 +147,101 @@ function generate_wallet() {
   fi
 
   cd "$NCK_DIR" || exit 1
-  echo -e "[*] 自动生成钱包助记词与主私钥..."
+  echo -e "[*] 生成钱包密钥对..."
   WALLET_CMD="./target/release/nockchain-wallet"
   
-  # 生成种子短语并直接捕获输出
-  SEED_OUTPUT=$("$WALLET_CMD" keygen 2>&1 | tr -d '\0')
+  # Run keygen and capture output
+  KEYGEN_OUTPUT=$("$WALLET_CMD" keygen 2>&1 | tr -d '\0')
   if [ $? -ne 0 ]; then
-    echo -e "${RED}[-] 钱包生成失败！${RESET}"
-    echo "$SEED_OUTPUT" > "$NCK_DIR/wallet.txt"
+    echo -e "${RED}[-] 密钥生成失败！${RESET}"
+    echo "$KEYGEN_OUTPUT" > "$NCK_DIR/wallet.txt"
     echo -e "[*] 错误输出已保存至 $NCK_DIR/wallet.txt"
     pause_and_return
     return
   fi
 
-  # 将原始输出保存到 walletsony.txt
-  echo "$SEED_OUTPUT" > "$NCK_DIR/wallet.txt"
-  echo -e "[*] 原始输出已保存至 $NCK_DIR/wallet.txt"
+  # Save output to wallet.txt
+  echo "$KEYGEN_OUTPUT" > "$NCK_DIR/wallet.txt"
+  echo -e "[*] 密钥对已保存至 $NCK_DIR/wallet.txt"
 
-  # 从输出中提取种子短语
-  SEED_PHRASE=$(echo "$SEED_OUTPUT" | grep -iE "seed phrase|mnemonic|wallet seed|recovery phrase" | sed 's/.*: //')
-  if [ -z "$SEED_PHRASE" ]; then
-    echo -e "${RED}[-] 无法提取助记词！${RESET}"
+  # Extract public key (adjust regex based on actual output format)
+  PUBLIC_KEY=$(echo "$KEYGEN_OUTPUT" | grep -i "public key" | awk '{print $NF}')
+  if [ -z "$PUBLIC_KEY" ]; then
+    echo -e "${RED}[-] 无法提取公钥，请检查输出！${RESET}"
     pause_and_return
     return
   fi
-  echo -e "${YELLOW}助记词:${RESET}\n$SEED_PHRASE"
+  echo -e "${YELLOW}公钥:${RESET}\n$PUBLIC_KEY"
+  echo -e "${YELLOW}[!] 请手动将以下公钥添加到 $NCK_DIR/.env 文件中：${RESET}"
+  echo -e "MINING_PUBKEY=$PUBLIC_KEY"
+  echo -e "${YELLOW}[!] 你可以使用菜单选项 '7) 设置挖矿公钥' 或手动编辑 .env 文件。${RESET}"
 
-  # 生成主私钥
-  MASTER_PRIVKEY=$("$WALLET_CMD" gen-master-privkey --seedphrase "$SEED_PHRASE" | grep -i "master private key" | awk '{print $NF}')
-  if [ -z "$MASTER_PRIVKEY" ]; then
-    echo -e "${RED}[-] 无法生成主私钥！${RESET}"
-    pause_and_return
-    return
-  fi
-  echo -e "${YELLOW}主私钥:${RESET}\n$MASTER_PRIVKEY"
-
-  # 生成主公钥
-  MASTER_PUBKEY=$("$WALLET_CMD" gen-master-pubkey --master-privkey "$MASTER_PRIVKEY" | grep -i "master public key" | awk '{print $NF}')
-  if [ -z "$MASTER_PUBKEY" ]; then
-    echo -e "${RED}[-] 无法生成主公钥！${RESET}"
-    pause_and_return
-    return
-  fi
-  echo -e "${YELLOW}主公钥:${RESET}\n$MASTER_PUBKEY"
-
-  # 写入 Makefile
-  echo -e "[*] 写入 Makefile 挖矿公钥..."
-  sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $MASTER_PUBKEY|" Makefile
-  echo -e "${GREEN}[+] 钱包生成并配置完成。${RESET}"
-  
+  echo -e "${GREEN}[+] 钱包生成完成。${RESET}"
   pause_and_return
 }
 
 # ========= 设置挖矿公钥 =========
 function configure_mining_key() {
-  if [ ! -f "$NCK_DIR/Makefile" ]; then
-    echo -e "${RED}[-] 找不到 Makefile，无法设置公钥！${RESET}"
+  if [ ! -f "$NCK_DIR/.env" ]; then
+    echo -e "${RED}[-] 找不到 .env 文件，无法设置公钥！${RESET}"
     pause_and_return
     return
   fi
 
   read -p "[?] 输入你的挖矿公钥 / Enter your mining public key: " key
-  sed -i "s|^export MINING_PUBKEY :=.*$|export MINING_PUBKEY := $key|" "$NCK_DIR/Makefile"
+  cd "$NCK_DIR" || exit 1
+  if grep -q "MINING_PUBKEY" .env; then
+    sed -i "s|^MINING_PUBKEY=.*$|MINING_PUBKEY=$key|" .env
+  else
+    echo "MINING_PUBKEY=$key" >> .env
+  fi
   echo -e "${GREEN}[+] 挖矿公钥已设置 / Mining key updated.${RESET}"
-
   pause_and_return
 }
 
+# ========= 管理密钥（备份/导入） =========
+function manage_keys() {
+  echo ""
+  echo "密钥管理:"
+  echo "  1) 备份密钥"
+  echo "  2) 导入密钥"
+  echo "  0) 返回主菜单"
+  echo ""
+  read -p "选择操作: " key_choice
+  case "$key_choice" in
+    1)
+      cd "$NCK_DIR" || exit 1
+      if [ -f "$NCK_DIR/target/release/nockchain-wallet" ]; then
+        echo -e "[*] 备份密钥..."
+        ./target/release/nockchain-wallet export-keys
+        if [ -f "keys.export" ]; then
+          echo -e "${GREEN}[+] 密钥已备份至 $NCK_DIR/keys.export${RESET}"
+        else
+          echo -e "${RED}[-] 密钥备份失败！${RESET}"
+        fi
+      else
+        echo -e "${RED}[-] 未找到钱包命令，请确保编译成功！${RESET}"
+      fi
+      ;;
+    2)
+      cd "$NCK_DIR" || exit 1
+      if [ -f "$NCK_DIR/target/release/nockchain-wallet" ]; then
+        if [ -f "keys.export" ]; then
+          echo -e "[*] 导入密钥..."
+          ./target/release/nockchain-wallet import-keys --input keys.export
+          echo -e "${GREEN}[+] 密钥导入完成。${RESET}"
+        else
+          echo -e "${RED}[-] 未找到 keys.export 文件！${RESET}"
+        fi
+      else
+        echo -e "${RED}[-] 未找到钱包命令，请确保编译成功！${RESET}"
+      fi
+      ;;
+    0) return ;;
+    *) echo -e "${RED}[-] 无效选项。${RESET}" ;;
+  esac
+  pause_and_return
+}
 
 # ========= 启动 Leader 节点 =========
 function start_leader_node() {
@@ -218,12 +279,31 @@ function start_follower_node() {
   pause_and_return
 }
 
+# ========= 启动 Miner 节点 =========
+function start_miner_node() {
+  if [ ! -d "$NCK_DIR" ]; then
+    echo -e "${RED}[-] nockchain 目录不存在，请先设置仓库！${RESET}"
+    pause_and_return
+    return
+  fi
+
+  cd "$NCK_DIR" || exit 1
+  echo -e "[*] 启动 Miner 节点..."
+  screen -S miner -dm bash -c "make run-nockchain"
+  echo -e "${GREEN}[+] Miner 节点运行中。${RESET}"
+  echo -e "${YELLOW}[!] 正在进入日志界面，按 Ctrl+A+D 可退出。${RESET}"
+  sleep 2
+  screen -r miner
+  pause_and_return
+}
+
 # ========= 查看节点日志 =========
 function view_logs() {
   echo ""
   echo "查看节点日志:"
   echo "  1) Leader 节点"
   echo "  2) Follower 节点"
+  echo "  3) Miner 节点"
   echo "  0) 返回主菜单"
   echo ""
   read -p "选择查看哪个节点日志: " log_choice
@@ -240,6 +320,13 @@ function view_logs() {
         screen -r follower
       else
         echo -e "${RED}[-] Follower 节点未运行。${RESET}"
+      fi
+      ;;
+    3)
+      if screen -list | grep -q "miner"; then
+        screen -r miner
+      else
+        echo -e "${RED}[-] Miner 节点未运行。${RESET}"
       fi
       ;;
     0) return ;;
@@ -266,9 +353,11 @@ function main_menu() {
   echo "  5) 配置环境变量"
   echo "  6) 生成钱包"
   echo "  7) 设置挖矿公钥"
-  echo "  8) 启动 Leader 节点"
-  echo "  9) 启动 Follower 节点"
-  echo "  10) 查看节点日志"
+  echo "  8) 启动 Leader 节点（不需要）"
+  echo "  9) 启动 Follower 节点（不需要）"
+  echo "  10) 启动 Miner 节点（上面的跑完直接跑这个）"
+  echo "  11) 查看节点日志"
+  echo "  12) 管理密钥（备份/导入）"
   echo "  0) 退出"
   echo ""
   read -p "请输入编号: " choice
@@ -283,7 +372,9 @@ function main_menu() {
     7) configure_mining_key ;;
     8) start_leader_node ;;
     9) start_follower_node ;;
-    10) view_logs ;;
+    10) start_miner_node ;;
+    11) view_logs ;;
+    12) manage_keys ;;
     0) echo "已退出。"; exit 0 ;;
     *) echo -e "${RED}[-] 无效选项。${RESET}"; pause_and_return ;;
   esac
