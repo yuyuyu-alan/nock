@@ -31,15 +31,40 @@ function show_banner() {
 
 # ========= 安装系统依赖 =========
 function install_dependencies() {
-  if ! command -v apt-get &> /dev/null; then
-    echo -e "${RED}[-] 此脚本假设使用 Debian/Ubuntu 系统 (apt)。请手动安装依赖！${RESET}"
+  echo -e "[*] 检测系统包管理器..."
+  if command -v apt-get &> /dev/null; then
+    echo -e "[*] 检测到 Debian/Ubuntu 系统 (apt)，开始安装依赖..."
+    apt-get update && apt-get upgrade -y && apt install -y sudo
+    sudo apt install -y curl iptables build-essential git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli libgbm1 pkg-config libssl-dev libleveldb-dev tar clang bsdmainutils ncdu unzip screen
+    if [ $? -eq 0 ]; then
+      echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
+    else
+      echo -e "${RED}[-] 依赖安装失败，请检查网络或权限！${RESET}"
+    fi
+  elif command -v yum &> /dev/null; then
+    echo -e "[*] 检测到 CentOS/RHEL 系统 (yum)，开始安装依赖..."
+    sudo yum update -y && sudo yum upgrade -y
+    sudo yum install -y curl iptables gcc-c++ git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli mesa-libgbm pkgconf openssl-devel leveldb-devel tar clang bsdmainutils ncdu unzip screen
+    if [ $? -eq 0 ]; then
+      echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
+    else
+      echo -e "${RED}[-] 依赖安装失败，请检查网络或权限！${RESET}"
+    fi
+  elif command -v pacman &> /dev/null; then
+    echo -e "[*] 检测到 Arch Linux 系统 (pacman)，开始安装依赖..."
+    sudo pacman -Syu --noconfirm
+    sudo pacman -S --noconfirm curl iptables base-devel git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli mesa-libgbm pkgconf openssl leveldb tar clang bsdmainutils ncdu unzip screen
+    if [ $? -eq 0 ]; then
+      echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
+    else
+      echo -e "${RED}[-] 依赖安装失败，请检查网络或权限！${RESET}"
+    fi
+  else
+    echo -e "${RED}[-] 未检测到支持的包管理器（apt/yum/pacman）。请手动安装依赖！${RESET}"
+    echo -e "${YELLOW}[!] 所需依赖：curl, iptables, build-essential, git, wget, lz4, jq, make, gcc, nano, automake, autoconf, tmux, htop, nvme-cli, libgbm1, pkg-config, libssl-dev, libleveldb-dev, tar, clang, bsdmainutils, ncdu, unzip, screen${RESET}"
     pause_and_return
     return
   fi
-  echo -e "[*] 更新系统并安装依赖..."
-  apt-get update && apt-get upgrade -y && apt install -y sudo
-  sudo apt install -y curl iptables build-essential git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli libgbm1 pkg-config libssl-dev libleveldb-dev tar clang bsdmainutils ncdu unzip screen
-  echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
   pause_and_return
 }
 
