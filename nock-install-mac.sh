@@ -29,66 +29,31 @@ function show_banner() {
   echo ""
 }
 
+# ========= 等待任意键继续 =========
+function pause_and_return() {
+  echo ""
+  read -n1 -r -p "按任意键返回主菜单..." key
+  main_menu
+}
+
 # ========= 安装系统依赖 =========
 function install_dependencies() {
-  echo -e "[*] 检测系统类型..."
-  if [[ "$(uname)" == "Darwin" ]]; then
-    echo -e "[*] 检测到 macOS 系统，开始安装依赖..."
-    # 检查是否安装 Homebrew
-    if ! command -v brew &> /dev/null; then
-      echo -e "${YELLOW}[!] 未检测到 Homebrew，正在安装 Homebrew...${RESET}"
-      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-      # 添加 Homebrew 到 PATH
-      if [[ -f /opt/homebrew/bin/brew ]]; then
-        echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$HOME/.zshrc"
-        eval "$(/opt/homebrew/bin/brew shellenv)"
-      elif [[ -f /usr/local/bin/brew ]]; then
-        echo 'eval "$(/usr/local/bin/brew shellenv)"' >> "$HOME/.zshrc"
-        eval "$(/usr/local/bin/brew shellenv)"
-      fi
-    fi
-    # 安装 macOS 依赖
-    echo -e "[*] 使用 Homebrew 安装依赖..."
-    brew update
-    brew install curl git wget lz4 jq make gcc nano automake autoconf tmux htop libpng pkg-config openssl leveldb tar clang ncdu unzip screen
-    if [ $? -eq 0 ]; then
-      echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
-    else
-      echo -e "${RED}[-] 依赖安装失败，请检查网络或权限！${RESET}"
-    fi
-  elif command -v apt-get &> /dev/null; then
-    echo -e "[*] 检测到 Debian/Ubuntu 系统 (apt)，开始安装依赖..."
-    apt-get update && apt-get upgrade -y && apt install -y sudo
-    sudo apt install -y curl iptables build-essential git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli libgbm1 pkg-config libssl-dev libleveldb-dev tar clang bsdmainutils ncdu unzip screen
-    if [ $? -eq 0 ]; then
-      echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
-    else
-      echo -e "${RED}[-] 依赖安装失败，请检查网络或权限！${RESET}"
-    fi
-  elif command -v yum &> /dev/null; then
-    echo -e "[*] 检测到 CentOS/RHEL 系统 (yum)，开始安装依赖..."
-    sudo yum update -y && sudo yum upgrade -y
-    sudo yum install -y curl iptables gcc-c++ git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli mesa-libgbm pkgconf openssl-devel leveldb-devel tar clang bsdmainutils ncdu unzip screen
-    if [ $? -eq 0 ]; then
-      echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
-    else
-      echo -e "${RED}[-] 依赖安装失败，请检查网络或权限！${RESET}"
-    fi
-  elif command -v pacman &> /dev/null; then
-    echo -e "[*] 检测到 Arch Linux 系统 (pacman)，开始安装依赖..."
-    sudo pacman -Syu --noconfirm
-    sudo pacman -S --noconfirm curl iptables base-devel git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli mesa-libgbm pkgconf openssl leveldb tar clang bsdmainutils ncdu unzip screen
-    if [ $? -eq 0 ]; then
-      echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
-    else
-      echo -e "${RED}[-] 依赖安装失败，请检查网络或权限！${RESET}"
-    fi
-  else
-    echo -e "${RED}[-] 未检测到支持的包管理器（apt/yum/pacman/brew）。请手动安装依赖！${RESET}"
-    echo -e "${YELLOW}[!] 所需依赖：curl, git, wget, lz4, jq, make, gcc, nano, automake, autoconf, tmux, htop, pkg-config, openssl, leveldb, tar, clang, ncdu, unzip, screen${RESET}"
+  echo -e "[*] 检查 Homebrew..."
+  if ! command -v brew &> /dev/null; then
+    echo -e "${RED}[-] Homebrew 未安装，正在安装...${RESET}"
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    # 配置 Homebrew 环境变量
+    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$HOME/.zshrc"
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+  fi
+  echo -e "[*] 更新 Homebrew 并安装依赖..."
+  brew update && brew upgrade
+  brew install curl git wget lz4 jq make gcc nano tmux htop llvm pkg-config openssl@3 leveldb tar clang ncdu unzip gnu-sed screen || {
+    echo -e "${RED}[-] 依赖安装失败，请检查 Homebrew 或网络！${RESET}"
     pause_and_return
     return
-  fi
+  }
+  echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
   pause_and_return
 }
 
@@ -161,23 +126,12 @@ function build_and_configure() {
   make install-nockchain-wallet || { echo -e "${RED}[-] 执行 make install-nockchain-wallet 失败，请检查 Makefile 或依赖！${RESET}"; pause_and_return; return; }
   make install-nockchain || { echo -e "${RED}[-] 执行 make install-nockchain 失败，请检查 Makefile 或依赖！${RESET}"; pause_and_return; return; }
   echo -e "[*] 配置环境变量..."
-  RC_FILE="$HOME/.bashrc"
-  if [[ "$SHELL" == *"zsh"* ]]; then
-    RC_FILE="$HOME/.zshrc"
-  elif [[ "$SHELL" == *"bash"* ]]; then
-    RC_FILE="$HOME/.bashrc"
+  RC_FILE="$HOME/.zshrc"
+  if ! grep -q "$NCK_DIR/target/release" "$RC_FILE"; then
+    echo "export PATH=\"\$PATH:$NCK_DIR/target/release\"" >> "$RC_FILE"
+    source "$RC_FILE" || echo -e "${YELLOW}[!] 无法立即应用环境变量，请手动 source $RC_FILE 或重新打开终端。${RESET}"
   else
-    echo -e "${YELLOW}[!] 检测到非 bash/zsh 的 Shell，请手动将以下内容添加到你的 Shell 配置文件：${RESET}"
-    echo -e "export PATH=\"\$PATH:$NCK_DIR/target/release\""
-    RC_FILE=""
-  fi
-  if [ -n "$RC_FILE" ]; then
-    if ! grep -q "$NCK_DIR/target/release" "$RC_FILE"; then
-      echo "export PATH=\"\$PATH:$NCK_DIR/target/release\"" >> "$RC_FILE"
-      source "$RC_FILE" || echo -e "${YELLOW}[!] 无法立即应用环境变量，请手动 source $RC_FILE 或重新打开终端。${RESET}"
-    else
-      source "$RC_FILE" || echo -e "${YELLOW}[!] 无法立即应用环境变量，请手动 source $RC_FILE 或重新打开终端。${RESET}"
-    fi
+    source "$RC_FILE" || echo -e "${YELLOW}[!] 无法立即应用环境变量，请手动 source $RC_FILE 或重新打开终端。${RESET}"
   fi
   echo -e "${GREEN}[+] 编译和环境变量配置完成。${RESET}"
   pause_and_return
@@ -209,11 +163,50 @@ function generate_wallet() {
   PUBLIC_KEY=$(grep -i "public key" wallet_keys.txt | awk '{print $NF}' | tail -1)
   if [ -n "$PUBLIC_KEY" ]; then
     echo -e "${YELLOW}公钥:${RESET}\n$PUBLIC_KEY"
-    echo -e "${YELLOW}[!] 请记录此公钥，选项 7 启动节点时需要输入！${RESET}"
+    echo -e "${YELLOW}[!] 请使用选项 6 设置挖矿公钥或手动将以下公钥添加到 $NCK_DIR/.env 文件中：${RESET}"
+    echo -e "MINING_PUBKEY=$PUBLIC_KEY"
   else
     echo -e "${RED}[-] 无法提取公钥，请检查 wallet_keys.txt！${RESET}"
   fi
   echo -e "${GREEN}[+] 钱包生成完成。${RESET}"
+  pause_and_return
+}
+
+# ========= 设置挖矿公钥 =========
+function configure_mining_key() {
+  if [ ! -d "$NCK_DIR" ]; then
+    echo -e "${RED}[-] nockchain 目录不存在，请先运行选项 3！${RESET}"
+    pause_and_return
+    return
+  fi
+  cd "$NCK_DIR" || { echo -e "${RED}[-] 无法进入 nockchain 目录！${RESET}"; pause_and_return; return; }
+  echo -e "[*] 设置挖矿公钥（MINING_PUBKEY）..."
+  read -p "[?] 请输入您的 MINING_PUBKEY（可从选项 5 获取）： " public_key
+  if [ -z "$public_key" ]; then
+    echo -e "${RED}[-] 未提供 MINING_PUBKEY，请输入有效的公钥！${RESET}"
+    pause_and_return
+    return
+  fi
+  if [ ! -f ".env" ]; then
+    echo -e "${RED}[-] .env 文件不存在，请先运行选项 3 设置仓库！${RESET}"
+    pause_and_return
+    return
+  fi
+  if ! grep -q "^MINING_PUBKEY=" .env; then
+    echo "MINING_PUBKEY=$public_key" >> .env
+  else
+    gsed -i "s|^MINING_PUBKEY=.*|MINING_PUBKEY=$public_key|" .env || {
+      echo -e "${RED}[-] 无法更新 .env 文件中的 MINING_PUBKEY！${RESET}"
+      pause_and_return
+      return
+    }
+  fi
+  if grep -q "^MINING_PUBKEY=$public_key$" .env; then
+    echo -e "${GREEN}[+] .env 文件中的 MINING_PUBKEY 更新成功！${RESET}"
+  else
+    echo -e "${RED}[-] .env 文件更新失败，请检查文件内容！${RESET}"
+  fi
+  echo -e "${GREEN}[+] 挖矿公钥设置完成。${RESET}"
   pause_and_return
 }
 
@@ -230,6 +223,7 @@ function start_miner_node() {
   echo -e "[*] 正在验证 nockchain 命令..."
   if ! command -v nockchain &> /dev/null; then
     echo -e "${RED}[-] nockchain 命令不可用，请检查选项 4 是否成功！${RESET}"
+    echo -e "${YELLOW}[!] 请确保 \$PATH 包含 $NCK_DIR/target/release，可运行 'source ~/.zshrc' 或重新打开终端${RESET}"
     pause_and_return
     return
   fi
@@ -242,27 +236,33 @@ function start_miner_node() {
     return
   fi
   if ! command -v tee &> /dev/null; then
-    echo -e "${RED}[-] tee 命令不可用，请确保已安装 tee（运行选项 1 或手动安装）！${RESET}"
+    echo -e "${RED}[-] tee 命令不可用，请确保已安装 tee！${RESET}"
     pause_and_return
     return
   fi
 
-  # 提示用户输入公钥
-  echo -e "[*] 请提供挖矿公钥（MINING_PUBKEY）..."
-  read -p "[?] 请输入您的 MINING_PUBKEY（可从选项 5 获取）： " your_pubkey
-  if [ -z "$your_pubkey" ]; then
-    echo -e "${RED}[-] 未提供 MINING_PUBKEY，请输入有效的公钥！${RESET}"
-    pause_and_return
-    return
-  fi
-
-  # 检查网络连接
-  echo -e "[*] 检查网络连接到 nockchain-backbone.zorp.io..."
-  if ping -c 3 nockchain-backbone.zorp.io &> /dev/null; then
-    echo -e "${GREEN}[+] 网络连接正常${RESET}"
+  # 从 .env 文件中读取公钥
+  if [ -f ".env" ]; then
+    public_key=$(grep "^MINING_PUBKEY=" .env | cut -d'=' -f2)
+    if [ -z "$public_key" ]; then
+      echo -e "${YELLOW}[!] .env 文件中未找到 MINING_PUBKEY，请使用选项 6 设置或手动输入。${RESET}"
+      read -p "[?] 请输入您的 MINING_PUBKEY（可从选项 5 获取）： " public_key
+      if [ -z "$public_key" ]; then
+        echo -e "${RED}[-] 未提供 MINING_PUBKEY，请输入有效的公钥！${RESET}"
+        pause_and_return
+        return
+      fi
+    else
+      echo -e "[*] 使用 .env 文件中的 MINING_PUBKEY：$public_key"
+    fi
   else
-    echo -e "${RED}[-] 无法连接到 nockchain-backbone.zorp.io，请检查网络设置或防火墙！${RESET}"
-    echo -e "${YELLOW}[!] 建议：1) 检查 DNS：dig nockchain-backbone.zorp.io 2) 检查防火墙：sudo pfctl -sr (macOS) 3) 同步时间：sudo sntp -s time.apple.com 4) 测试 UDP：nc -zu nockchain-backbone.zorp.io 33416${RESET}"
+    echo -e "${YELLOW}[!] .env 文件不存在，请使用选项 6 设置或手动输入 MINING_PUBKEY。${RESET}"
+    read -p "[?] 请输入您的 MINING_PUBKEY（可从选项 5 获取）： " public_key
+    if [ -z "$public_key" ]; then
+      echo -e "${RED}[-] 未提供 MINING_PUBKEY，请输入有效的公钥！${RESET}"
+      pause_and_return
+      return
+    fi
   fi
 
   # 提示清理数据目录
@@ -283,7 +283,7 @@ function start_miner_node() {
   PORTS_OCCUPIED=false
   declare -A PID_PORT_MAP
 
-  # 检查端口占用（适配 macOS）
+  # 检查端口占用（优先使用 lsof）
   echo -e "[*] 检查端口 $LEADER_PORT 和 $FOLLOWER_PORT 是否被占用..."
   if command -v lsof &> /dev/null; then
     for PORT in "${PORTS_TO_CHECK[@]}"; do
@@ -297,21 +297,8 @@ function start_miner_node() {
         done
       fi
     done
-  elif command -v netstat &> /dev/null; then
-    for PORT in "${PORTS_TO_CHECK[@]}"; do
-      # macOS 使用 netstat -anv
-      PIDS=$(netstat -anv 2>/dev/null | grep -E "\.$PORT\s+.*LISTEN" | awk '{print $NF}' | sort -u)
-      if [ -n "$PIDS" ]; then
-        echo -e "${YELLOW}[!] 端口 $PORT 已被占用。${RESET}"
-        for PID in $PIDS; do
-          echo -e "${YELLOW}[!] 占用端口 $PORT 的进程 PID: $PID${RESET}"
-          PID_PORT_MAP[$PID]+="$PORT "
-          PORTS_OCCUPIED=true
-        done
-      fi
-    done
   else
-    echo -e "${RED}[-] 未找到 lsof 或 netstat 命令，无法检查端口！${RESET}"
+    echo -e "${RED}[-] 未找到 lsof 命令，无法检查端口！请安装 lsof（运行选项 1 或手动安装）。${RESET}"
     pause_and_return
     return
   fi
@@ -324,12 +311,7 @@ function start_miner_node() {
       for PID in "${!PID_PORT_MAP[@]}"; do
         PORTS=${PID_PORT_MAP[$PID]}
         echo -e "[*] 正在杀死占用端口 $PORTS 的进程 (PID: $PID)..."
-        if ! ps -p "$PID" -o user= | grep -q "^$USER$"; then
-          echo -e "${YELLOW}[!] 进程 PID $PID 由其他用户拥有，尝试使用 sudo 杀死...${RESET}"
-          sudo kill -9 "$PID" 2>/dev/null
-        else
-          kill -9 "$PID" 2>/dev/null
-        fi
+        kill -9 "$PID" 2>/dev/null
         if [ $? -eq 0 ]; then
           echo -e "${GREEN}[+] 成功杀死 PID $PID，端口 $PORTS 应已释放。${RESET}"
         else
@@ -338,14 +320,9 @@ function start_miner_node() {
           return
         fi
       done
-      # 验证端口释放
       echo -e "[*] 验证端口是否已释放..."
       for PORT in "${PORTS_TO_CHECK[@]}"; do
-        if command -v lsof &> /dev/null && lsof -i :$PORT -t >/dev/null 2>&1; then
-          echo -e "${RED}[-] 端口 $PORT 仍被占用，请手动检查！${RESET}"
-          pause_and_return
-          return
-        elif command -v netstat &> /dev/null && netstat -anv | grep -q "\.$PORT\s+.*LISTEN"; then
+        if lsof -i :$PORT -t >/dev/null 2>&1; then
           echo -e "${RED}[-] 端口 $PORT 仍被占用，请手动检查！${RESET}"
           pause_and_return
           return
@@ -364,77 +341,120 @@ function start_miner_node() {
   echo -e "[*] 正在清理现有的 miner screen 会话..."
   screen -ls | grep -q "miner" && screen -X -S miner quit
 
-  # 启动 Miner 节点，使用用户输入的公钥
+  # 启动 Miner 节点，使用公钥和 peer 参数
   echo -e "[*] 正在启动 Miner 节点..."
-  NOCKCHAIN_CMD="RUST_LOG=trace ./target/release/nockchain --mining-pubkey \"$your_pubkey\" --mine"
+  NOCKCHAIN_CMD="RUST_LOG=trace ./target/release/nockchain --mining-pubkey \"$public_key\" --mine --peer /ip4/95.216.102.60/udp/3006/quic-v1 --peer /ip4/65.108.123.225/udp/3006/quic-v1 --peer /ip4/65.109.156.108/udp/3006/quic-v1 --peer /ip4/65.21.67.175/udp/3006/quic-v1 --peer /ip4/65.109.156.172/udp/3006/quic-v1 --peer /ip4/34.174.22.166/udp/3006/quic-v1 --peer /ip4/34.95.155.151/udp/30000/quic-v1 --peer /ip4/34.18.98.38/udp/30000/quic-v1"
 
-  # 在 screen 会话中运行 nockchain 命令，输出同时显示在 screen 和 miner.log
   echo -e "${GREEN}[+] 启动 nockchain 节点在 screen 会话 'miner' 中，日志同时输出到 $NCK_DIR/miner.log${RESET}"
   echo -e "${YELLOW}[!] 使用 'screen -r miner' 查看节点实时输出，Ctrl+A 然后 D 脱离 screen（节点继续运行）${RESET}"
-  screen -dmS miner bash -c "$NOCKCHAIN_CMD 2>&1 | tee miner.log; echo 'nockchain 已退出，查看日志：$NCK_DIR/miner.log'; sleep 30"
-  sleep 2
+  screen -dmS miner -L -Logfile "$NCK_DIR/screen_miner.log" bash -c "source $HOME/.zshrc; $NOCKCHAIN_CMD 2>&1 | tee -a miner.log; echo 'nockchain 已退出，查看日志：$NCK_DIR/miner.log'; sleep 30"
+
+  sleep 5
   if screen -ls | grep -q "miner"; then
     echo -e "${GREEN}[+] Miner 节点已在 screen 会话 'miner' 中运行，可使用 'screen -r miner' 查看${RESET}"
     echo -e "${GREEN}[+] 所有步骤已成功完成！${RESET}"
     echo -e "当前目录：$(pwd)"
-    echo -e "MINING_PUBKEY 已设置为：$your_pubkey"
+    echo -e "MINING_PUBKEY 已设置为：$public_key"
     echo -e "Leader 端口：$LEADER_PORT"
     echo -e "Follower 端口：$FOLLOWER_PORT"
-    if [[ -n "$create_wallet" && "$create_wallet" =~ ^[Yy]$ ]]; then
-      echo -e "钱包密钥已生成，请妥善保存！"
+    if [ -f "wallet_keys.txt" ]; then
+      echo -e "钱包密钥已生成，保存在 $NCK_DIR/wallet_keys.txt，请妥善保存！"
     fi
-    # 检查进程是否仍在运行
-    if ! ps aux | grep -v grep | grep -q "nockchain.*--mine"; then
-      echo -e "${RED}[-] 警告：nockchain 进程可能已退出，请检查 $NCK_DIR/miner.log${RESET}"
-      echo -e "${YELLOW}[!] 最后 10 行日志：${RESET}"
-      tail -n 10 $NCK_DIR/miner.log 2>/dev/null || echo -e "${YELLOW}[!] 未找到 miner.log${RESET}"
+    if [ -f "miner.log" ] && [ -s "miner.log" ]; then
+      echo -e "${YELLOW}[!] miner.log 内容：${RESET}"
+      tail -n 10 miner.log
     else
-      # 检查链同步状态
-      sleep 10
-      if ! tail -n 50 $NCK_DIR/miner.log | grep -q "chain synced\|block height"; then
-        echo -e "${YELLOW}[!] 警告：链可能未同步完成，可能影响挖矿，请继续观察 $NCK_DIR/miner.log${RESET}"
-      fi
-      # 检查挖矿状态
-      if ! tail -n 50 $NCK_DIR/miner.log | grep -q "mining.*start\|block mined"; then
-        echo -e "${YELLOW}[!] 警告：未检测到挖矿活动，可能未正确启用挖矿，请检查 $NCK_DIR/miner.log${RESET}"
-        echo -e "${YELLOW}[!] 可能原因：1) 网络连接失败 2) MINING_PUBKEY 无效 3) 链未同步${RESET}"
-      fi
+      echo -e "${YELLOW}[!] miner.log 文件尚未生成或为空，请稍后检查或使用 'screen -r miner' 查看实时输出${RESET}"
+    fi
+    if [ -f "$NCK_DIR/screen_miner.log" ] && [ -s "$NCK_DIR/screen_miner.log" ]; then
+      echo -e "${YELLOW}[!] screen_miner.log 内容（最后 10 行）：${RESET}"
+      tail -n 10 "$NCK_DIR/screen_miner.log"
+    else
+      echo -e "${YELLOW}[!] screen_miner.log 文件尚未生成或为空，可能是 screen 输出问题${RESET}"
     fi
   else
-    echo -e "${RED}[-] 无法启动 Miner 节点！请检查 $NCK_DIR/miner.log${RESET}"
-    echo -e "${YELLOW}[!] 最后 10 行日志：${RESET}"
-    tail -n 10 $NCK_DIR/miner.log 2>/dev/null || echo -e "${YELLOW}[!] 未找到 miner.log${RESET}"
+    echo -e "${RED}[-] 无法启动 Miner 节点！请检查 $NCK_DIR/miner.log 和 $NCK_DIR/screen_miner.log${RESET}"
+    echo -e "${YELLOW}[!] 最后 10 行 miner.log：${RESET}"
+    tail -n 10 "$NCK_DIR/miner.log" 2>/dev/null || echo -e "${YELLOW}[!] 未找到 miner.log${RESET}"
+    echo -e "${YELLOW}[!] 最后 10 行 screen_miner.log：${RESET}"
+    tail -n 10 "$NCK_DIR/screen_miner.log" 2>/dev/null || echo -e "${YELLOW}[!] 未找到 screen_miner.log${RESET}"
+  fi
+  pause_and_return
+}
+
+# ========= 备份密钥 =========
+function backup_keys() {
+  if [ ! -d "$NCK_DIR" ]; then
+    echo -e "${RED}[-] nockchain 目录不存在，请先运行选项 3！${RESET}"
+    pause_and_return
+    return
+  fi
+  if ! command -v nockchain-wallet &> /dev/null; then
+    echo -e "${RED}[-] nockchain-wallet 命令不可用，请先运行选项 4！${RESET}"
+    pause_and_return
+    return
+  fi
+  cd "$NCK_DIR" || { echo -e "${RED}[-] 无法进入 nockchain 目录！${RESET}"; pause_and_return; return; }
+  echo -e "[*] 备份密钥..."
+  nockchain-wallet export-keys > nockchain_keys_backup.txt 2>&1
+  if [ $? -eq 0 ]; then
+    echo -e "${GREEN}[+] 密钥备份成功！已保存到 $NCK_DIR/nockchain_keys_backup.txt${RESET}"
+    echo -e "${YELLOW}[!] 请妥善保管该文件，切勿泄露！${RESET}"
+  else
+    echo -e "${RED}[-] 密钥备份失败，请检查 nockchain-wallet export-keys 命令输出！${RESET}"
+    echo -e "${YELLOW}[!] 详细信息见 $NCK_DIR/nockchain_keys_backup.txt${RESET}"
   fi
   pause_and_return
 }
 
 # ========= 查看节点日志 =========
 function view_logs() {
-  echo -e "${BOLD}${BLUE}"
-  echo "查看节点日志:"
-  echo "  1) Miner 节点"
-  echo "  0) 返回主菜单"
-  echo -e "${RESET}"
-  read -p "选择查看哪个节点日志: " log_choice
-  case "$log_choice" in
-    1)
-      if screen -list | grep -q "miner"; then
-        screen -r miner
-      else
-        echo -e "${RED}[-] Miner 节点未运行！${RESET}"
-      fi
-      ;;
-    0) pause_and_return ;;
-    *) echo -e "${RED}[-] 无效选项！${RESET}" ;;
-  esac
+  LOG_FILE="$NCK_DIR/miner.log"
+  if [ -f "$LOG_FILE" ]; then
+    echo -e "${GREEN}[+] 正在显示日志文件：$LOG_FILE${RESET}"
+    tail -f "$LOG_FILE"
+  else
+    echo -e "${RED}[-] 日志文件 $LOG_FILE 不存在，请确认是否已运行选项 7 启动 Miner 节点！${RESET}"
+  fi
   pause_and_return
 }
 
-# ========= 等待任意键继续 =========
-function pause_and_return() {
-  echo ""
-  read -n1 -r -p "按任意键返回主菜单..." key
-  main_menu
+# ========= 查询余额 =========
+function check_balance() {
+  if [ ! -d "$NCK_DIR" ]; then
+    echo -e "${RED}[-] nockchain 目录不存在，请先运行选项 3！${RESET}"
+    pause_and_return
+    return
+  fi
+  if ! command -v nockchain-wallet &> /dev/null; then
+    echo -e "${RED}[-] nockchain-wallet 命令不可用，请先运行选项 4！${RESET}"
+    pause_and_return
+    return
+  fi
+  cd "$NCK_DIR" || { echo -e "${RED}[-] 无法进入 nockchain 目录！${RESET}"; pause_and_return; return; }
+
+  # 检查 socket 文件（macOS 路径可能不同，需用户确认）
+  SOCKET_PATH="$NCK_DIR/.socket/nockchain_npc.sock"
+  if [ ! -S "$SOCKET_PATH" ]; then
+    echo -e "${RED}[-] socket 文件 $SOCKET_PATH 不存在，请确保 nockchain 节点正在运行（可尝试选项 7）！${RESET}"
+    echo -e "${YELLOW}[!] 如果 socket 路径不同，请手动查找（例如：find ~ -name nockchain_npc.sock）并更新脚本${RESET}"
+    pause_and_return
+    return
+  fi
+
+  # 执行余额查询
+  echo -e "[*] 正在查询余额..."
+  nockchain-wallet --nockchain-socket "$SOCKET_PATH" update-balance > balance_output.txt 2>&1
+  if [ $? -eq 0 ]; then
+    echo -e "${GREEN}[+] 余额查询成功！以下是查询结果：${RESET}"
+    echo -e "----------------------------------------"
+    cat balance_output.txt
+    echo -e "----------------------------------------"
+  else
+    echo -e "${RED}[-] 余额查询失败，请检查 nockchain-wallet 命令或节点状态！${RESET}"
+    echo -e "${YELLOW}[!] 详细信息见 $NCK_DIR/balance_output.txt${RESET}"
+  fi
+  pause_and_return
 }
 
 # ========= 主菜单 =========
@@ -446,8 +466,11 @@ function main_menu() {
   echo "  3) 设置仓库"
   echo "  4) 编译项目和配置环境变量"
   echo "  5) 生成钱包"
-  echo "  6) 启动 Miner 节点"
-  echo "  7) 查看节点日志"
+  echo "  6) 设置挖矿公钥"
+  echo "  7) 启动 Miner 节点"
+  echo "  8) 备份密钥"
+  echo "  9) 查看节点日志"
+  echo " 10) 查询余额"
   echo "  0) 退出"
   echo ""
   read -p "请输入编号: " choice
@@ -457,8 +480,11 @@ function main_menu() {
     3) setup_repository ;;
     4) build_and_configure ;;
     5) generate_wallet ;;
-    6) start_miner_node ;;
-    7) view_logs ;;
+    6) configure_mining_key ;;
+    7) start_miner_node ;;
+    8) backup_keys ;;
+    9) view_logs ;;
+    10) check_balance ;;
     0) echo -e "${GREEN}已退出。${RESET}"; exit 0 ;;
     *) echo -e "${RED}[-] 无效选项！${RESET}"; pause_and_return ;;
   esac
