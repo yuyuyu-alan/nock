@@ -31,40 +31,15 @@ function show_banner() {
 
 # ========= 安装系统依赖 =========
 function install_dependencies() {
-  echo -e "[*] 检测系统包管理器..."
-  if command -v apt-get &> /dev/null; then
-    echo -e "[*] 检测到 Debian/Ubuntu 系统 (apt)，开始安装依赖..."
-    apt-get update && apt-get upgrade -y && apt install -y sudo
-    sudo apt install -y curl iptables build-essential git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli libgbm1 pkg-config libssl-dev libleveldb-dev tar clang bsdmainutils ncdu unzip screen
-    if [ $? -eq 0 ]; then
-      echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
-    else
-      echo -e "${RED}[-] 依赖安装失败，请检查网络或权限！${RESET}"
-    fi
-  elif command -v yum &> /dev/null; then
-    echo -e "[*] 检测到 CentOS/RHEL 系统 (yum)，开始安装依赖..."
-    sudo yum update -y && sudo yum upgrade -y
-    sudo yum install -y curl iptables gcc-c++ git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli mesa-libgbm pkgconf openssl-devel leveldb-devel tar clang bsdmainutils ncdu unzip screen
-    if [ $? -eq 0 ]; then
-      echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
-    else
-      echo -e "${RED}[-] 依赖安装失败，请检查网络或权限！${RESET}"
-    fi
-  elif command -v pacman &> /dev/null; then
-    echo -e "[*] 检测到 Arch Linux 系统 (pacman)，开始安装依赖..."
-    sudo pacman -Syu --noconfirm
-    sudo pacman -S --noconfirm curl iptables base-devel git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli mesa-libgbm pkgconf openssl leveldb tar clang bsdmainutils ncdu unzip screen
-    if [ $? -eq 0 ]; then
-      echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
-    else
-      echo -e "${RED}[-] 依赖安装失败，请检查网络或权限！${RESET}"
-    fi
-  else
-    echo -e "${RED}[-] 未检测到支持的包管理器（apt/yum/pacman）。请手动安装依赖！${RESET}"
-    echo -e "${YELLOW}[!] 所需依赖：curl, iptables, build-essential, git, wget, lz4, jq, make, gcc, nano, automake, autoconf, tmux, htop, nvme-cli, libgbm1, pkg-config, libssl-dev, libleveldb-dev, tar, clang, bsdmainutils, ncdu, unzip, screen${RESET}"
+  if ! command -v apt-get &> /dev/null; then
+    echo -e "${RED}[-] 此脚本假设使用 Debian/Ubuntu 系统 (apt)。请手动安装依赖！${RESET}"
     pause_and_return
     return
   fi
+  echo -e "[*] 更新系统并安装依赖..."
+  apt-get update && apt-get upgrade -y && apt install -y sudo
+  sudo apt install -y curl iptables build-essential git wget lz4 jq make gcc nano automake autoconf tmux htop nvme-cli libgbm1 pkg-config libssl-dev libleveldb-dev tar clang bsdmainutils ncdu unzip screen
+  echo -e "${GREEN}[+] 依赖安装完成。${RESET}"
   pause_and_return
 }
 
@@ -184,38 +159,6 @@ function generate_wallet() {
   pause_and_return
 }
 
-# ========= 设置挖矿公钥 =========
-function configure_mining_key() {
-  if [ ! -d "$NCK_DIR" ] || [ ! -f "$NCK_DIR/.env" ]; then
-    echo -e "${RED}[-] nockchain 目录或 .env 文件不存在，请先运行选项 3！${RESET}"
-    pause_and_return
-    return
-  fi
-  cd "$NCK_DIR" || { echo -e "${RED}[-] 无法进入 nockchain 目录！${RESET}"; pause_and_return; return; }
-  echo -e "[*] 设置挖矿公钥..."
-  read -p "[?] 请输入您的 MINING_PUBKEY： " public_key
-  if [ -z "$public_key" ]; then
-    echo -e "${RED}[-] 未提供 MINING_PUBKEY，请输入有效的公钥！${RESET}"
-    pause_and_return
-    return
-  fi
-  if ! grep -q "^MINING_PUBKEY=" .env; then
-    echo "MINING_PUBKEY=$public_key" >> .env
-  else
-    sed -i "s|^MINING_PUBKEY=.*|MINING_PUBKEY=$public_key|" .env || {
-      echo -e "${RED}[-] 无法更新 .env 文件中的 MINING_PUBKEY！${RESET}"
-      pause_and_return
-      return
-    }
-  fi
-  if grep -q "^MINING_PUBKEY=$public_key$" .env; then
-    echo -e "${GREEN}[+] 挖矿公钥设置成功！${RESET}"
-  else
-    echo -e "${RED}[-] .env 文件更新失败，请检查文件内容！${RESET}"
-  fi
-  pause_and_return
-}
-
 # ========= 启动 Miner 节点 =========
 function start_miner_node() {
   if [ ! -d "$NCK_DIR" ]; then
@@ -233,17 +176,35 @@ function start_miner_node() {
     return
   fi
 
-  # 验证 .env 文件和 MINING_PUBKEY
-  if [ ! -f ".env" ] || ! grep -q "^MINING_PUBKEY=" .env; then
-    echo -e "${RED}[-] 未找到 .env 文件或 MINING_PUBKEY，请先运行选项 6！${RESET}"
+  # 验证 screen 和 tee 命令是否可用
+  echo -e "[*] 正在验证 screen 和 tee 命令..."
+  if ! command -v screen &> /dev/null; then
+    echo -e "${RED}[-] screen 命令不可用，请确保已安装 screen（运行选项 1 或手动安装）！${RESET}"
     pause_and_return
     return
   fi
-  PUBLIC_KEY=$(grep "^MINING_PUBKEY=" .env | cut -d'=' -f2)
-  if [ -z "$PUBLIC_KEY" ]; then
-    echo -e "${RED}[-] MINING_PUBKEY 为空，请检查 .env 文件！${RESET}"
+  if ! command -v tee &> /dev/null; then
+    echo -e "${RED}[-] tee 命令不可用，请确保已安装 tee（运行选项 1 或手动安装）！${RESET}"
     pause_and_return
     return
+  fi
+
+  # 提示用户输入公钥
+  echo -e "[*] 请提供挖矿公钥（MINING_PUBKEY）..."
+  read -p "[?] 请输入您的 MINING_PUBKEY（可从选项 5 获取）： " your_pubkey
+  if [ -z "$your_pubkey" ]; then
+    echo -e "${RED}[-] 未提供 MINING_PUBKEY，请输入有效的公钥！${RESET}"
+    pause_and_return
+    return
+  fi
+
+  # 检查网络连接
+  echo -e "[*] 检查网络连接到 nockchain-backbone.zorp.io..."
+  if ping -c 3 nockchain-backbone.zorp.io &> /dev/null; then
+    echo -e "${GREEN}[+] 网络连接正常${RESET}"
+  else
+    echo -e "${RED}[-] 无法连接到 nockchain-backbone.zorp.io，请检查网络设置或防火墙！${RESET}"
+    echo -e "${YELLOW}[!] 建议：1) 检查 DNS：dig nockchain-backbone.zorp.io 2) 检查防火墙：ufw status 3) 同步时间：sudo ntpdate pool.ntp.org 4) 测试 UDP：nc -zu nockchain-backbone.zorp.io 33416${RESET}"
   fi
 
   # 提示清理数据目录
@@ -344,25 +305,20 @@ function start_miner_node() {
   echo -e "[*] 正在清理现有的 miner screen 会话..."
   screen -ls | grep -q "miner" && screen -X -S miner quit
 
-  # 启动 Miner 节点
-  echo -e "[*] 正在启动 Miner 节点（使用端口 $LEADER_PORT 和 $FOLLOWER_PORT）..."
-  # 检查 nockchain 是否支持 --leader-port 和 --follower-port
-  if ./target/release/nockchain --help | grep -q -- "--leader-port"; then
-    NOCKCHAIN_CMD="RUST_LOG=trace ./target/release/nockchain --mining-pubkey \"$PUBLIC_KEY\" --mine --leader-port $LEADER_PORT --follower-port $FOLLOWER_PORT"
-  else
-    NOCKCHAIN_CMD="RUST_LOG=trace ./target/release/nockchain --mining-pubkey \"$PUBLIC_KEY\" --mine"
-  fi
+  # 启动 Miner 节点，使用用户输入的公钥
+  echo -e "[*] 正在启动 Miner 节点..."
+  NOCKCHAIN_CMD="RUST_LOG=trace ./target/release/nockchain --mining-pubkey \"$your_pubkey\" --mine"
 
   # 在 screen 会话中运行 nockchain 命令，输出同时显示在 screen 和 miner.log
   echo -e "${GREEN}[+] 启动 nockchain 节点在 screen 会话 'miner' 中，日志同时输出到 $NCK_DIR/miner.log${RESET}"
   echo -e "${YELLOW}[!] 使用 'screen -r miner' 查看节点实时输出，Ctrl+A 然后 D 脱离 screen（节点继续运行）${RESET}"
-  screen -dmS miner bash -c "$NOCKCHAIN_CMD 2>&1 | tee miner.log"
+  screen -dmS miner bash -c "$NOCKCHAIN_CMD 2>&1 | tee miner.log; echo 'nockchain 已退出，查看日志：$NCK_DIR/miner.log'; sleep 30"
   sleep 2
   if screen -ls | grep -q "miner"; then
     echo -e "${GREEN}[+] Miner 节点已在 screen 会话 'miner' 中运行，可使用 'screen -r miner' 查看${RESET}"
     echo -e "${GREEN}[+] 所有步骤已成功完成！${RESET}"
     echo -e "当前目录：$(pwd)"
-    echo -e "MINING_PUBKEY 已设置为：$PUBLIC_KEY"
+    echo -e "MINING_PUBKEY 已设置为：$your_pubkey"
     echo -e "Leader 端口：$LEADER_PORT"
     echo -e "Follower 端口：$FOLLOWER_PORT"
     if [[ -n "$create_wallet" && "$create_wallet" =~ ^[Yy]$ ]]; then
@@ -373,6 +329,17 @@ function start_miner_node() {
       echo -e "${RED}[-] 警告：nockchain 进程可能已退出，请检查 $NCK_DIR/miner.log${RESET}"
       echo -e "${YELLOW}[!] 最后 10 行日志：${RESET}"
       tail -n 10 $NCK_DIR/miner.log 2>/dev/null || echo -e "${YELLOW}[!] 未找到 miner.log${RESET}"
+    else
+      # 检查链同步状态
+      sleep 10
+      if ! tail -n 50 $NCK_DIR/miner.log | grep -q "chain synced\|block height"; then
+        echo -e "${YELLOW}[!] 警告：链可能未同步完成，可能影响挖矿，请继续观察 $NCK_DIR/miner.log${RESET}"
+      fi
+      # 检查挖矿状态
+      if ! tail -n 50 $NCK_DIR/miner.log | grep -q "mining.*start\|block mined"; then
+        echo -e "${YELLOW}[!] 警告：未检测到挖矿活动，可能未正确启用挖矿，请检查 $NCK_DIR/miner.log${RESET}"
+        echo -e "${YELLOW}[!] 可能原因：1) 网络连接失败 2) MINING_PUBKEY 无效 3) 链未同步${RESET}"
+      fi
     fi
   else
     echo -e "${RED}[-] 无法启动 Miner 节点！请检查 $NCK_DIR/miner.log${RESET}"
@@ -381,7 +348,6 @@ function start_miner_node() {
   fi
   pause_and_return
 }
-
 # ========= 查看节点日志 =========
 function view_logs() {
   echo -e "${BOLD}${BLUE}"
