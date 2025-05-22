@@ -333,7 +333,7 @@ function start_miner_node() {
       done
       echo -e "[*] 验证端口是否已释放..."
       for PORT in "${PORTS_TO_CHECK[@]}"; do
-        if commandocator lsof &> /dev/null && lsof -i :$PORT -t >/dev/null 2>&1; then
+        if command -v lsof &> /dev/null && lsof -i :$PORT -t >/dev/null 2>&1; then
           echo -e "${RED}[-] 端口 $PORT 仍被占用，请手动检查！${RESET}"
           pause_and_return
           return
@@ -360,13 +360,11 @@ function start_miner_node() {
   echo -e "[*] 正在启动 Miner 节点..."
   NOCKCHAIN_CMD="RUST_LOG=trace ./target/release/nockchain --mining-pubkey \"$public_key\" --mine --peer /ip4/95.216.102.60/udp/3006/quic-v1 --peer /ip4/65.108.123.225/udp/3006/quic-v1 --peer /ip4/65.109.156.108/udp/3006/quic-v1 --peer /ip4/65.21.67.175/udp/3006/quic-v1 --peer /ip4/65.109.156.172/udp/3006/quic-v1 --peer /ip4/34.174.22.166/udp/3006/quic-v1 --peer /ip4/34.95.155.151/udp/30000/quic-v1 --peer /ip4/34.18.98.38/udp/30000/quic-v1"
 
-  # 修改 screen 命令，确保输出可见
   echo -e "${GREEN}[+] 启动 nockchain 节点在 screen 会话 'miner' 中，日志同时输出到 $NCK_DIR/miner.log${RESET}"
   echo -e "${YELLOW}[!] 使用 'screen -r miner' 查看节点实时输出，Ctrl+A 然后 D 脱离 screen（节点继续运行）${RESET}"
-  # 使用 -L 记录 screen 日志，并确保命令在 bash 中运行
   screen -dmS miner -L -Logfile "$NCK_DIR/screen_miner.log" bash -c "source $HOME/.bashrc; $NOCKCHAIN_CMD 2>&1 | tee -a miner.log; echo 'nockchain 已退出，查看日志：$NCK_DIR/miner.log'; sleep 30"
 
-  # 等待更长时间，确保 screen 会话初始化
+  # 等待足够时间，确保 screen 会话初始化
   sleep 5
 
   # 检查 screen 会话是否运行
