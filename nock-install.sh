@@ -29,6 +29,13 @@ function show_banner() {
   echo ""
 }
 
+# ========= 等待任意键继续 =========
+function pause_and_return() {
+  echo ""
+  read -n1 -r -p "按任意键返回主菜单..." key
+  main_menu
+}
+
 # ========= 安装系统依赖 =========
 function install_dependencies() {
   if ! command -v apt-get &> /dev/null; then
@@ -159,6 +166,44 @@ function generate_wallet() {
   pause_and_return
 }
 
+# ========= 设置挖矿公钥 =========
+function configure_mining_key() {
+  if [ ! -d "$NCK_DIR" ]; then
+    echo -e "${RED}[-] nockchain 目录不存在，请先运行选项 3！${RESET}"
+    pause_and_return
+    return
+  fi
+  cd "$NCK_DIR" || { echo -e "${RED}[-] 无法进入 nockchain 目录！${RESET}"; pause_and_return; return; }
+  echo -e "[*] 设置挖矿公钥（MINING_PUBKEY）..."
+  read -p "[?] 请输入您的 MINING_PUBKEY（可从选项 5 获取）： " public_key
+  if [ -z "$public_key" ]; then
+    echo -e "${RED}[-] 未提供 MINING_PUBKEY，请输入有效的公钥！${RESET}"
+    pause_and_return
+    return
+  fi
+  if [ ! -f ".env" ]; then
+    echo -e "${RED}[-] .env 文件不存在，请先运行选项 3 设置仓库！${RESET}"
+    pause_and_return
+    return
+  fi
+  if ! grep -q "^MINING_PUBKEY=" .env; then
+    echo "MINING_PUBKEY=$public_key" >> .env
+  else
+    sed -i "s|^MINING_PUBKEY=.*|MINING_PUBKEY=$public_key|" .env || {
+      echo -e "${RED}[-] 无法更新 .env 文件中的 MINING_PUBKEY！${RESET}"
+      pause_and_return
+      return
+    }
+  fi
+  if grep -q "^MINING_PUBKEY=$public_key$" .env; then
+    echo -e "${GREEN}[+] .env 文件中的 MINING_PUBKEY 更新成功！${RESET}"
+  else
+    echo -e "${RED}[-] .env 文件更新失败，请检查文件内容！${RESET}"
+  fi
+  echo -e "${GREEN}[+] 挖矿公钥设置完成。${RESET}"
+  pause_and_return
+}
+
 # ========= 启动 Miner 节点 =========
 function start_miner_node() {
   if [ ! -d "$NCK_DIR" ]; then
@@ -172,6 +217,7 @@ function start_miner_node() {
   echo -e "[*] 正在验证 nockchain 命令..."
   if ! command -v nockchain &> /dev/null; then
     echo -e "${RED}[-] nockchain 命令不可用，请检查选项 4 是否成功！${RESET}"
+    echo -e "${YELLOW}[!] 请确保 \$PATH 包含 $NCK_DIR/target/release，可运行 'source ~/.bashrc' 或重新打开终端${RESET}"
     pause_and_return
     return
   fi
@@ -189,13 +235,28 @@ function start_miner_node() {
     return
   fi
 
-  # 提示用户输入公钥
-  echo -e "[*] 请提供挖矿公钥（MINING_PUBKEY）..."
-  read -p "[?] 请输入您的 MINING_PUBKEY（可从选项 5 获取）： " your_pubkey
-  if [ -z "$your_pubkey" ]; then
-    echo -e "${RED}[-] 未提供 MINING_PUBKEY，请输入有效的公钥！${RESET}"
-    pause_and_return
-    return
+  # 从 .env 文件中读取公钥
+  if [ -f ".env" ]; then
+    public_key=$(grep "^MINING_PUBKEY=" .env | cut -d'=' -f2)
+    if [ -z "$public_key" ]; then
+      echo -e "${YELLOW}[!] .env 文件中未找到 MINING_PUBKEY，请使用选项 6 设置或手动输入。${RESET}"
+      read -p "[?] 请输入您的 MINING_PUBKEY（可从选项 5 获取）： " public_key
+      if [ -z "$public_key" ]; then
+        echo -e "${RED}[-] 未提供 MINING_PUBKEY，请输入有效的公钥！${RESET}"
+        pause_and_return
+        return
+      fi
+    else
+      echo -e "[*] 使用 .env 文件中的 MINING_PUBKEY：$public_key"
+    fi
+  else
+    echo -e "${YELLOW}[!] .env 文件不存在，请使用选项 6 设置或手动输入 MINING_PUBKEY。${RESET}"
+    read -p "[?] 请输入您的 MINING_PUBKEY（可从选项 5 获取）： " public_key
+    if [ -z "$public_key" ]; then
+      echo -e "${RED}[-] 未提供 MINING_PUBKEY，请输入有效的公钥！${RESET}"
+      pause_and_return
+      return
+    fi
   fi
 
   # 提示清理数据目录
@@ -270,11 +331,13 @@ function start_miner_node() {
           return
         fi
       done
-      # 验证端口释放
       echo -e "[*] 验证端口是否已释放..."
       for PORT in "${PORTS_TO_CHECK[@]}"; do
-        if command -v lsof &> /dev/null && lsof -i :$PORT -t >/dev/null 2>&1;露西娅的翻译：Lucia's Translation
-        if command -v netstat &> /dev/null && netstat -tuln | grep -q ":$PORT "; then
+        if commandocator lsof &> /dev/null && lsof -i :$PORT -t >/dev/null 2>&1; then
+          echo -e "${RED}[-] 端口 $PORT 仍被占用，请手动检查！${RESET}"
+          pause_and_return
+          return
+        elif command -v netstat &> /dev/null && netstat -tuln | grep -q ":$PORT "; then
           echo -e "${RED}[-] 端口 $PORT 仍被占用，请手动检查！${RESET}"
           pause_and_return
           return
@@ -293,65 +356,126 @@ function start_miner_node() {
   echo -e "[*] 正在清理现有的 miner screen 会话..."
   screen -ls | grep -q "miner" && screen -X -S miner quit
 
-  # 启动 Miner 节点，使用用户输入的公钥
+  # 启动 Miner 节点，使用公钥和 peer 参数
   echo -e "[*] 正在启动 Miner 节点..."
-  NOCKCHAIN_CMD="RUST_LOG=trace ./target/release/nockchain --mining-pubkey \"$your_pubkey\" --mine"
+  NOCKCHAIN_CMD="RUST_LOG=trace ./target/release/nockchain --mining-pubkey \"$public_key\" --mine --peer /ip4/95.216.102.60/udp/3006/quic-v1 --peer /ip4/65.108.123.225/udp/3006/quic-v1 --peer /ip4/65.109.156.108/udp/3006/quic-v1 --peer /ip4/65.21.67.175/udp/3006/quic-v1 --peer /ip4/65.109.156.172/udp/3006/quic-v1 --peer /ip4/34.174.22.166/udp/3006/quic-v1 --peer /ip4/34.95.155.151/udp/30000/quic-v1 --peer /ip4/34.18.98.38/udp/30000/quic-v1"
 
-  # 在 screen 会话中运行 nockchain 命令，输出同时显示在 screen 和 miner.log
+  # 修改 screen 命令，确保输出可见
   echo -e "${GREEN}[+] 启动 nockchain 节点在 screen 会话 'miner' 中，日志同时输出到 $NCK_DIR/miner.log${RESET}"
   echo -e "${YELLOW}[!] 使用 'screen -r miner' 查看节点实时输出，Ctrl+A 然后 D 脱离 screen（节点继续运行）${RESET}"
-  screen -dmS miner bash -c "$NOCKCHAIN_CMD 2>&1 | tee miner.log; echo 'nockchain 已退出，查看日志：$NCK_DIR/miner.log'; sleep 30"
-  sleep 2
+  # 使用 -L 记录 screen 日志，并确保命令在 bash 中运行
+  screen -dmS miner -L -Logfile "$NCK_DIR/screen_miner.log" bash -c "source $HOME/.bashrc; $NOCKCHAIN_CMD 2>&1 | tee -a miner.log; echo 'nockchain 已退出，查看日志：$NCK_DIR/miner.log'; sleep 30"
+
+  # 等待更长时间，确保 screen 会话初始化
+  sleep 5
+
+  # 检查 screen 会话是否运行
   if screen -ls | grep -q "miner"; then
     echo -e "${GREEN}[+] Miner 节点已在 screen 会话 'miner' 中运行，可使用 'screen -r miner' 查看${RESET}"
     echo -e "${GREEN}[+] 所有步骤已成功完成！${RESET}"
     echo -e "当前目录：$(pwd)"
-    echo -e "MINING_PUBKEY 已设置为：$your_pubkey"
+    echo -e "MINING_PUBKEY 已设置为：$public_key"
     echo -e "Leader 端口：$LEADER_PORT"
     echo -e "Follower 端口：$FOLLOWER_PORT"
-    if [[ -n "$create_wallet" && "$create_wallet" =~ ^[Yy]$ ]]; then
-      echo -e "钱包密钥已生成，请妥善保存！"
+    if [ -f "wallet_keys.txt" ]; then
+      echo -e "钱包密钥已生成，保存在 $NCK_DIR/wallet_keys.txt，请妥善保存！"
     fi
-    # 检查进程是否仍在运行
-    if ! ps aux | grep -v grep | grep -q "nockchain.*--mine"; then
-      echo -e "${RED}[-] 警告：nockchain 进程可能已退出，请检查 $NCK_DIR/miner.log${RESET}"
-      echo -e "${YELLOW}[!] 最后 10 行日志：${RESET}"
-      tail -n 10 $NCK_DIR/miner.log 2>/dev/null || echo -e "${YELLOW}[!] 未找到 miner.log${RESET}"
+    # 检查 miner.log 是否有内容
+    if [ -f "miner.log" ] && [ -s "miner.log" ]; then
+      echo -e "${YELLOW}[!] miner.log 内容：${RESET}"
+      tail -n 10 miner.log
+    else
+      echo -e "${YELLOW}[!] miner.log 文件尚未生成或为空，请稍后检查或使用 'screen -r miner' 查看实时输出${RESET}"
+    fi
+    # 检查 screen 日志
+    if [ -f "$NCK_DIR/screen_miner.log" ] && [ -s "$NCK_DIR/screen_miner.log" ]; then
+      echo -e "${YELLOW}[!] screen_miner.log 内容（最后 10 行）：${RESET}"
+      tail -n 10 "$NCK_DIR/screen_miner.log"
+    else
+      echo -e "${YELLOW}[!] screen_miner.log 文件尚未生成或为空，可能是 screen 输出问题${RESET}"
     fi
   else
-    echo -e "${RED}[-] 无法启动 Miner 节点！请检查 $NCK_DIR/miner.log${RESET}"
-    echo -e "${YELLOW}[!] 最后 10 行日志：${RESET}"
-    tail -n 10 $NCK_DIR/miner.log 2>/dev/null || echo -e "${YELLOW}[!] 未找到 miner.log${RESET}"
+    echo -e "${RED}[-] 无法启动 Miner 节点！请检查 $NCK_DIR/miner.log 和 $NCK_DIR/screen_miner.log${RESET}"
+    echo -e "${YELLOW}[!] 最后 10 行 miner.log：${RESET}"
+    tail -n 10 "$NCK_DIR/miner.log" 2>/dev/null || echo -e "${YELLOW}[!] 未找到 miner.log${RESET}"
+    echo -e "${YELLOW}[!] 最后 10 行 screen_miner.log：${RESET}"
+    tail -n 10 "$NCK_DIR/screen_miner.log" 2>/dev/null || echo -e "${YELLOW}[!] 未找到 screen_miner.log${RESET}"
   fi
   pause_and_return
 }
-# ========= 查看节点日志 =========
-function view_logs() {
-  echo -e "${BOLD}${BLUE}"
-  echo "查看节点日志:"
-  echo "  1) Miner 节点"
-  echo "  0) 返回主菜单"
-  echo -e "${RESET}"
-  read -p "选择查看哪个节点日志: " log_choice
-  case "$log_choice" in
-    1)
-      if screen -list | grep -q "miner"; then
-        screen -r miner
-      else
-        echo -e "${RED}[-] Miner 节点未运行！${RESET}"
-      fi
-      ;;
-    0) pause_and_return ;;
-    *) echo -e "${RED}[-] 无效选项！${RESET}" ;;
-  esac
+
+# ========= 备份密钥 =========
+function backup_keys() {
+  if [ ! -d "$NCK_DIR" ]; then
+    echo -e "${RED}[-] nockchain 目录不存在，请先运行选项 3！${RESET}"
+    pause_and_return
+    return
+  fi
+  if ! command -v nockchain-wallet &> /dev/null; then
+    echo -e "${RED}[-] nockchain-wallet 命令不可用，请先运行选项 4！${RESET}"
+    pause_and_return
+    return
+  fi
+  cd "$NCK_DIR" || { echo -e "${RED}[-] 无法进入 nockchain 目录！${RESET}"; pause_and_return; return; }
+  echo -e "[*] 备份密钥..."
+  nockchain-wallet export-keys > nockchain_keys_backup.txt 2>&1
+  if [ $? -eq 0 ]; then
+    echo -e "${GREEN}[+] 密钥备份成功！已保存到 $NCK_DIR/nockchain_keys_backup.txt${RESET}"
+    echo -e "${YELLOW}[!] 请妥善保管该文件，切勿泄露！${RESET}"
+  else
+    echo -e "${RED}[-] 密钥备份失败，请检查 nockchain-wallet export-keys 命令输出！${RESET}"
+    echo -e "${YELLOW}[!] 详细信息见 $NCK_DIR/nockchain_keys_backup.txt${RESET}"
+  fi
   pause_and_return
 }
 
-# ========= 等待任意键继续 =========
-function pause_and_return() {
-  echo ""
-  read -n1 -r -p "按任意键返回主菜单..." key
-  main_menu
+# ========= 查看节点日志 =========
+function view_logs() {
+  LOG_FILE="$NCK_DIR/miner.log"
+  if [ -f "$LOG_FILE" ]; then
+    echo -e "${GREEN}[+] 正在显示日志文件：$LOG_FILE${RESET}"
+    tail -f "$LOG_FILE"
+  else
+    echo -e "${RED}[-] 日志文件 $LOG_FILE 不存在，请确认是否已运行选项 7 启动 Miner 节点！${RESET}"
+  fi
+  pause_and_return
+}
+
+# ========= 查询余额 =========
+function check_balance() {
+  if [ ! -d "$NCK_DIR" ]; then
+    echo -e "${RED}[-] nockchain 目录不存在，请先运行选项 3！${RESET}"
+    pause_and_return
+    return
+  fi
+  if ! command -v nockchain-wallet &> /dev/null; then
+    echo -e "${RED}[-] nockchain-wallet 命令不可用，请先运行选项 4！${RESET}"
+    pause_and_return
+    return
+  fi
+  cd "$NCK_DIR" || { echo -e "${RED}[-] 无法进入 nockchain 目录！${RESET}"; pause_and_return; return; }
+
+  # 检查 socket 文件
+  SOCKET_PATH="/opt/nockchain/.socket/nockchain_npc.sock"
+  if [ ! -S "$SOCKET_PATH" ]; then
+    echo -e "${RED}[-] socket 文件 $SOCKET_PATH 不存在，请确保 nockchain 节点正在运行（可尝试选项 7）！${RESET}"
+    pause_and_return
+    return
+  fi
+
+  # 执行余额查询
+  echo -e "[*] 正在查询余额..."
+  nockchain-wallet --nockchain-socket "$SOCKET_PATH" update-balance > balance_output.txt 2>&1
+  if [ $? -eq 0 ]; then
+    echo -e "${GREEN}[+] 余额查询成功！以下是查询结果：${RESET}"
+    echo -e "----------------------------------------"
+    cat balance_output.txt
+    echo -e "----------------------------------------"
+  else
+    echo -e "${RED}[-] 余额查询失败，请检查 nockchain-wallet 命令或节点状态！${RESET}"
+    echo -e "${YELLOW}[!] 详细信息见 $NCK_DIR/balance_output.txt${RESET}"
+  fi
+  pause_and_return
 }
 
 # ========= 主菜单 =========
@@ -367,6 +491,7 @@ function main_menu() {
   echo "  7) 启动 Miner 节点"
   echo "  8) 备份密钥"
   echo "  9) 查看节点日志"
+  echo " 10) 查询余额"
   echo "  0) 退出"
   echo ""
   read -p "请输入编号: " choice
@@ -380,6 +505,7 @@ function main_menu() {
     7) start_miner_node ;;
     8) backup_keys ;;
     9) view_logs ;;
+    10) check_balance ;;
     0) echo -e "${GREEN}已退出。${RESET}"; exit 0 ;;
     *) echo -e "${RED}[-] 无效选项！${RESET}"; pause_and_return ;;
   esac
