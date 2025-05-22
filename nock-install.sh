@@ -198,15 +198,6 @@ function start_miner_node() {
     return
   fi
 
-  # 检查网络连接
-  echo -e "[*] 检查网络连接到 nockchain-backbone.zorp.io..."
-  if ping -c 3 nockchain-backbone.zorp.io &> /dev/null; then
-    echo -e "${GREEN}[+] 网络连接正常${RESET}"
-  else
-    echo -e "${RED}[-] 无法连接到 nockchain-backbone.zorp.io，请检查网络设置或防火墙！${RESET}"
-    echo -e "${YELLOW}[!] 建议：1) 检查 DNS：dig nockchain-backbone.zorp.io 2) 检查防火墙：ufw status 3) 同步时间：sudo ntpdate pool.ntp.org 4) 测试 UDP：nc -zu nockchain-backbone.zorp.io 33416${RESET}"
-  fi
-
   # 提示清理数据目录
   if [ -d ".data.nockchain" ]; then
     echo -e "${YELLOW}[?] 检测到数据目录 .data.nockchain，是否清理以重新初始化？(y/n)${RESET}"
@@ -282,11 +273,8 @@ function start_miner_node() {
       # 验证端口释放
       echo -e "[*] 验证端口是否已释放..."
       for PORT in "${PORTS_TO_CHECK[@]}"; do
-        if command -v lsof &> /dev/null && lsof -i :$PORT -t >/dev/null 2>&1; then
-          echo -e "${RED}[-] 端口 $PORT 仍被占用，请手动检查！${RESET}"
-          pause_and_return
-          return
-        elif command -v netstat &> /dev/null && netstat -tuln | grep -q ":$PORT "; then
+        if command -v lsof &> /dev/null && lsof -i :$PORT -t >/dev/null 2>&1;露西娅的翻译：Lucia's Translation
+        if command -v netstat &> /dev/null && netstat -tuln | grep -q ":$PORT "; then
           echo -e "${RED}[-] 端口 $PORT 仍被占用，请手动检查！${RESET}"
           pause_and_return
           return
@@ -329,17 +317,6 @@ function start_miner_node() {
       echo -e "${RED}[-] 警告：nockchain 进程可能已退出，请检查 $NCK_DIR/miner.log${RESET}"
       echo -e "${YELLOW}[!] 最后 10 行日志：${RESET}"
       tail -n 10 $NCK_DIR/miner.log 2>/dev/null || echo -e "${YELLOW}[!] 未找到 miner.log${RESET}"
-    else
-      # 检查链同步状态
-      sleep 10
-      if ! tail -n 50 $NCK_DIR/miner.log | grep -q "chain synced\|block height"; then
-        echo -e "${YELLOW}[!] 警告：链可能未同步完成，可能影响挖矿，请继续观察 $NCK_DIR/miner.log${RESET}"
-      fi
-      # 检查挖矿状态
-      if ! tail -n 50 $NCK_DIR/miner.log | grep -q "mining.*start\|block mined"; then
-        echo -e "${YELLOW}[!] 警告：未检测到挖矿活动，可能未正确启用挖矿，请检查 $NCK_DIR/miner.log${RESET}"
-        echo -e "${YELLOW}[!] 可能原因：1) 网络连接失败 2) MINING_PUBKEY 无效 3) 链未同步${RESET}"
-      fi
     fi
   else
     echo -e "${RED}[-] 无法启动 Miner 节点！请检查 $NCK_DIR/miner.log${RESET}"
