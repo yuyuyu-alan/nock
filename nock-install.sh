@@ -436,7 +436,7 @@ function start_node() {
   chmod +x "$script"
   echo -e "${GREEN}[+] 启动节点在 screen 会话 '$session_name' 中，screen 日志输出到 $work_dir/screen_$session_name.log${RESET}"
   echo -e "${YELLOW}[!] 使用 'screen -r $session_name' 查看节点实时输出，Ctrl+A 然后 D 脱离 screen（节点继续运行）${RESET}"
-  screen -dmS "$session_name" -L -Logfile "$work_dir/screen_$session_name.log" bash -c "source $HOME/.bashrc; sh $script --bind \"$bind_addr\" $log_output; echo '节点已退出，查看 screen 日志：$work_dir/screen_$session_name.log'; sleep 30"
+  screen -dmS "$session_name" -L -Logfile "$work_dir/screen_$session_name.log" bash -c "source $HOME/.bashrc; source $work_dir/.env; bash $script --bind \"$bind_addr\" $log_output; echo '节点已退出，查看 screen 日志：$work_dir/screen_$session_name.log'; sleep 30"
 
   # 等待足够时间，确保 screen 会话初始化
   sleep 5
