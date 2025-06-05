@@ -86,6 +86,23 @@ function setup_repository() {
     return
   fi
   cd "$NCK_DIR" || { echo -e "${RED}[-] 无法进入 nockchain 目录！${RESET}"; pause_and_return; return; }
+  
+  # 修复关键：修改运行脚本解释器为 bash
+  echo -e "[*] 修复运行脚本解释器..."
+  for script in scripts/run_nockchain_*.sh; do
+    if [ -f "$script" ]; then
+      # 确保第一行是 #!/bin/bash
+      if ! head -1 "$script" | grep -q '^#!/bin/bash'; then
+        sed -i '1s|^#!/bin/sh$|#!/bin/bash|' "$script"
+        if ! head -1 "$script" | grep -q '^#!'; then
+          sed -i '1i#!/bin/bash' "$script"
+        fi
+        echo -e "${GREEN}[+] 修复脚本: $script${RESET}"
+      fi
+      chmod +x "$script"
+    fi
+  done
+  
   if [ -f ".env" ]; then
     cp .env .env.bak
     echo -e "[*] .env 已备份为 .env.bak"
@@ -434,9 +451,14 @@ function start_node() {
     return
   fi
   chmod +x "$script"
+  
+  # 关键修复：使用 bash 执行脚本并加载环境变量
   echo -e "${GREEN}[+] 启动节点在 screen 会话 '$session_name' 中，screen 日志输出到 $work_dir/screen_$session_name.log${RESET}"
   echo -e "${YELLOW}[!] 使用 'screen -r $session_name' 查看节点实时输出，Ctrl+A 然后 D 脱离 screen（节点继续运行）${RESET}"
-  screen -dmS "$session_name" -L -Logfile "$work_dir/screen_$session_name.log" bash -c "source $HOME/.bashrc; source $work_dir/.env; bash $script --bind \"$bind_addr\" $log_output; echo '节点已退出，查看 screen 日志：$work_dir/screen_$session_name.log'; sleep 30"
+  
+  # 修复点1：使用 bash 执行脚本
+  # 修复点2：加载环境变量文件
+  screen -dmS "$session_name" -L -Logfile "$work_dir/screen_$session_name.log" bash -c "source $HOME/.bashrc; source $work_dir/.env; bash $script --mining-pubkey \"$public_key\" --bind \"$bind_addr\" $log_output; echo '节点已退出，查看 screen 日志：$work_dir/screen_$session_name.log'; sleep 30"
 
   # 等待足够时间，确保 screen 会话初始化
   sleep 5
